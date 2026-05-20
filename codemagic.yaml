@@ -1,0 +1,23 @@
+workflows:
+  android-build:
+    name: Build Android APK
+    max_build_duration: 60
+    environment:
+      vars:
+        JAVA_VERSION: 17
+      android:
+        sdk: 34
+    scripts:
+      - name: Set up Java
+        script: |
+          sdk install java $JAVA_VERSION
+      - name: Make Gradle executable
+        script: chmod +x ./gradlew
+      - name: Build debug APK
+        script: ./gradlew assembleDebug
+    artifacts:
+      - app/build/outputs/apk/debug/app-debug.apk
+    publishing:
+      email:
+        recipients:
+          - codemagic-build-android-apk@guenthers.ca
