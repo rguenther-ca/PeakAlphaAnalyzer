@@ -14,15 +14,27 @@ workflows:
           mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
           cd $ANDROID_SDK_ROOT/cmdline-tools
 
-          # Download command-line tools
+          # Download Google's command-line tools
           wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
 
           # Extract
           unzip tools.zip
 
-          # Google’s ZIP extracts into a folder named "cmdline-tools"
-          # Codemagic requires the folder to be named "latest"
-          mv cmdline-tools latest
+          # Google sometimes nests the folder as cmdline-tools/cmdline-tools
+          if [ -d "cmdline-tools/bin" ]; then
+            mv cmdline-tools latest
+          elif [ -d "cmdline-tools/cmdline-tools/bin" ]; then
+            mv cmdline-tools/cmdline-tools latest
+          else
+            echo "Could not find extracted cmdline-tools folder"
+            exit 1
+          fi
+
+          # Verify sdkmanager exists
+          if [ ! -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "sdkmanager not found after extraction"
+            exit 1
+          fi
 
       - name: Accept Android licenses
         script: |
