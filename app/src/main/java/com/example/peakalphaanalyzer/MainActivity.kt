@@ -147,7 +147,26 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         // analyze data
-                        val res = PafAnalyzer.analyze(csv)
+                        //orig, issue with empty rows
+                        //val res = PafAnalyzer.analyze(csv)
+                        //copilot suggestion 
+                        // Read entire CSV entry into memory
+val rawBytes = zis.readBytes()
+val rawText = rawBytes.toString(Charsets.UTF_8)
+
+// Sanitize: remove empty lines, whitespace-only lines, and malformed rows
+val cleanedText = rawText
+    .lineSequence()
+    .filter { it.isNotBlank() }                 // remove empty rows
+    .filter { it.contains(",") }                // must contain at least one comma
+    .joinToString("\n")
+
+// Convert back to InputStream for analyzer
+val cleanedStream = cleanedText.byteInputStream(Charsets.UTF_8)
+
+// Now analyze the cleaned CSV
+val res = PafAnalyzer.analyze(cleanedStream)
+
 
                         // compute series
                         val welchSeriesL = PafAnalyzer.welchPeakSeries(res.rawLeft,  res.fs)
