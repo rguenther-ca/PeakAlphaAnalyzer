@@ -3,16 +3,11 @@ workflows:
     name: Build Android APK
     max_build_duration: 60
     environment:
-      vars:
-        JAVA_VERSION: 17
+      java: 17
     scripts:
-      - name: Install Java
+      - name: Install Android SDK components
         script: |
-          sdk install java $JAVA_VERSION
-
-      - name: Install Android SDK 34
-        script: |
-          yes | sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          yes | sdkmanager "platforms;android-33" "build-tools;33.0.2"
 
       - name: Make Gradle executable
         script: chmod +x ./gradlew
