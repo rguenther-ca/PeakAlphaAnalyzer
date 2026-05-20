@@ -13,8 +13,15 @@ workflows:
         script: |
           mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
           cd $ANDROID_SDK_ROOT/cmdline-tools
+
+          # Download command-line tools
           wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
+
+          # Extract
           unzip tools.zip
+
+          # Google’s ZIP extracts into a folder named "cmdline-tools"
+          # Codemagic requires the folder to be named "latest"
           mv cmdline-tools latest
 
       - name: Accept Android licenses
