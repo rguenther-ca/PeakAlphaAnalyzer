@@ -2,12 +2,31 @@ workflows:
   android-build:
     name: Build Android APK
     max_build_duration: 60
+
     environment:
       java: 17
+      vars:
+        ANDROID_SDK_ROOT: /opt/android-sdk
+
     scripts:
+      - name: Install Android command-line tools
+        script: |
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          cd $ANDROID_SDK_ROOT/cmdline-tools
+          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
+          unzip tools.zip
+          mv cmdline-tools latest
+
+      - name: Accept Android licenses
+        script: |
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
+
       - name: Install Android SDK components
         script: |
-          yes | sdkmanager "platforms;android-33" "build-tools;33.0.2"
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-33" \
+            "build-tools;33.0.2" \
+            "platform-tools"
 
       - name: Make Gradle executable
         script: chmod +x ./gradlew
