@@ -20,19 +20,14 @@ workflows:
           # Extract
           unzip tools.zip
 
-          # Google sometimes nests the folder as cmdline-tools/cmdline-tools
-          if [ -d "cmdline-tools/bin" ]; then
-            mv cmdline-tools latest
-          elif [ -d "cmdline-tools/cmdline-tools/bin" ]; then
-            mv cmdline-tools/cmdline-tools latest
-          else
-            echo "Could not find extracted cmdline-tools folder"
-            exit 1
-          fi
+          # The extracted folder is ALWAYS named "cmdline-tools"
+          # Rename it to "latest" so sdkmanager is at the expected path
+          mv cmdline-tools latest
 
           # Verify sdkmanager exists
           if [ ! -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
             echo "sdkmanager not found after extraction"
+            ls -R $ANDROID_SDK_ROOT/cmdline-tools
             exit 1
           fi
 
