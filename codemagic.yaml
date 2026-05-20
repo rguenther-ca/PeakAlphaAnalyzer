@@ -9,6 +9,11 @@ workflows:
         ANDROID_SDK_ROOT: $HOME/android-sdk
 
     scripts:
+      - name: Remove conflicting Android SDK variables
+        script: |
+          unset ANDROID_HOME
+          echo "ANDROID_HOME unset. Using ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
       - name: Install Android command-line tools
         script: |
           mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
@@ -17,10 +22,8 @@ workflows:
           wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
           unzip tools.zip
 
-          # Rename extracted folder to "latest"
           mv cmdline-tools latest
 
-          # Verify sdkmanager exists
           if [ ! -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
             echo "sdkmanager not found after extraction"
             ls -R $ANDROID_SDK_ROOT/cmdline-tools
@@ -42,7 +45,9 @@ workflows:
         script: chmod +x ./gradlew
 
       - name: Build debug APK
-        script: ./gradlew assembleDebug
+        script: |
+          unset ANDROID_HOME
+          ./gradlew assembleDebug
 
     artifacts:
       - app/build/outputs/apk/debug/app-debug.apk
