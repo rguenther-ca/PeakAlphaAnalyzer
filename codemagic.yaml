@@ -6,7 +6,7 @@ workflows:
     environment:
       java: 17
       vars:
-        ANDROID_SDK_ROOT: /opt/android-sdk
+        ANDROID_SDK_ROOT: $HOME/android-sdk
 
     scripts:
       - name: Install Android command-line tools
@@ -14,14 +14,10 @@ workflows:
           mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
           cd $ANDROID_SDK_ROOT/cmdline-tools
 
-          # Download Google's command-line tools
           wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
-
-          # Extract
           unzip tools.zip
 
-          # The extracted folder is ALWAYS named "cmdline-tools"
-          # Rename it to "latest" so sdkmanager is at the expected path
+          # Rename extracted folder to "latest"
           mv cmdline-tools latest
 
           # Verify sdkmanager exists
