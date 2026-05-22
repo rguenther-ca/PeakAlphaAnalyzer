@@ -5,31 +5,25 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ProgressBar
-import android.widget.TextView
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.components.XAxis
-import com.github.mikephil.charting.data.Entry
-import com.github.mikephil.charting.data.LineData
-import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.data.*
 import com.github.mikephil.charting.formatter.ValueFormatter
 import java.io.BufferedInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 
 class MainActivity : AppCompatActivity() {
+
     private lateinit var etWindow: EditText
     private lateinit var etSubWindow: EditText
     private lateinit var etOverlap: EditText
     private lateinit var btnApply: Button
 
     private lateinit var chartWelch: LineChart
-    private lateinit var chartFft: LineChart
     private lateinit var resultView: TextView
     private lateinit var noteView: TextView
     private lateinit var progressBar: ProgressBar
@@ -40,63 +34,41 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // find views
-        etWindow    = findViewById(R.id.etWindow)
+        etWindow = findViewById(R.id.etWindow)
         etSubWindow = findViewById(R.id.etSubWindow)
-        etOverlap   = findViewById(R.id.etOverlap)
-        btnApply    = findViewById(R.id.btnApply)
+        etOverlap = findViewById(R.id.etOverlap)
+        btnApply = findViewById(R.id.btnApply)
 
-        chartWelch  = findViewById(R.id.lineChartWelch)
-        chartFft    = findViewById(R.id.lineChartFFT)
-        resultView  = findViewById(R.id.resultTextView)
-        noteView    = findViewById(R.id.noteTextView)
+        chartWelch = findViewById(R.id.lineChartWelch)
+        resultView = findViewById(R.id.resultTextView)
+        noteView = findViewById(R.id.noteTextView)
         progressBar = findViewById(R.id.progressBar)
 
         resultView.setTextIsSelectable(true)
 
-        // default parameter values
         etWindow.setText("6.0")
         etSubWindow.setText("3.0")
         etOverlap.setText("0.25")
 
-        // configure charts
-        listOf(chartWelch, chartFft).forEach { chart ->
-            chart.description.isEnabled = false
-            chart.axisRight.isEnabled   = false
-            chart.setTouchEnabled(true)
-            chart.setDrawMarkers(true)
-            chart.xAxis.position = XAxis.XAxisPosition.BOTTOM
-            chart.xAxis.valueFormatter = object : ValueFormatter() {
-                override fun getFormattedValue(value: Float) = String.format("%.2f s", value)
-            }
-            chart.axisLeft.valueFormatter = object : ValueFormatter() {
-                override fun getFormattedValue(value: Float) = String.format("%.1f dB", value)
-            }
-            // custom marker view
-            chart.marker = MyMarkerView(this)
+        chartWelch.description.isEnabled = false
+        chartWelch.axisRight.isEnabled = false
+        chartWelch.xAxis.position = XAxis.XAxisPosition.BOTTOM
+        chartWelch.xAxis.valueFormatter = object : ValueFormatter() {
+            override fun getFormattedValue(value: Float) = String.format("%.2f s", value)
         }
+        chartWelch.axisLeft.valueFormatter = object : ValueFormatter() {
+            override fun getFormattedValue(value: Float) = String.format("%.1f dB", value)
+        }
+        chartWelch.marker = MyMarkerView(this)
 
-        // Apply button
         btnApply.setOnClickListener {
-            PafAnalyzer.welchWindowSec    = etWindow.text.toString().toDoubleOrNull() ?: 4.0
-            PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: 2.0
-            PafAnalyzer.welchOverlap      = etOverlap.text.toString().toDoubleOrNull() ?: 0.50
+            PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: 6.0
+            PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: 3.0
+            PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: 0.25
 
-            // update note
-            noteView.text = buildString {
-
-                append("Welch: averaged PSD over sub-windows (window=${PafAnalyzer.welchWindowSec}s, ")
-                append("sub-window=${PafAnalyzer.welchSubWindowSec}s, ")
-                append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%).")
-                append("FFT: single-window PSD (window=${PafAnalyzer.welchWindowSec}s, ")
-                append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%).\n")
-            }
-
-            // re-plot if already loaded
             lastUri?.let { handleZipUri(it) }
         }
 
-        // handle incoming intent
         try {
             when (intent?.action) {
                 Intent.ACTION_VIEW -> intent.data?.also {
@@ -122,14 +94,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleZipUri(uri: Uri) {
-        // show loading indicator
         progressBar.visibility = View.VISIBLE
 
         Thread {
             try {
                 contentResolver.openInputStream(uri)?.use { stream ->
                     ZipInputStream(BufferedInputStream(stream)).use { zis ->
-                        // find CSV entry
                         var entry = zis.nextEntry
                         var csv: InputStream? = null
                         while (entry != null) {
@@ -146,68 +116,32 @@ class MainActivity : AppCompatActivity() {
                             return@Thread
                         }
 
-                        // analyze data
-                        //orig, issue with empty rows
-                        //val res = PafAnalyzer.analyze(csv)
-                        //copilot suggestion 
-                        // Read entire CSV entry into memory
-val rawBytes = zis.readBytes()
-val rawText = rawBytes.toString(Charsets.UTF_8)
+                        val rawBytes = zis.readBytes()
+                        val rawText = rawBytes.toString(Charsets.UTF_8)
 
-// Sanitize: remove empty lines, whitespace-only lines, and malformed rows
-val cleanedText = rawText
-    .lineSequence()
-    .filter { it.isNotBlank() }                 // remove empty rows
-    .filter { it.contains(",") }                // must contain at least one comma
-    .joinToString("\n")
+                        val cleanedText = rawText
+                            .lineSequence()
+                            .filter { it.isNotBlank() }
+                            .filter { it.contains(",") }
+                            .joinToString("\n")
 
-// Convert back to InputStream for analyzer
-val cleanedStream = cleanedText.byteInputStream(Charsets.UTF_8)
+                        val cleanedStream = cleanedText.byteInputStream(Charsets.UTF_8)
 
-// Now analyze the cleaned CSV
-val res = PafAnalyzer.analyze(cleanedStream)
-
-
-                        // compute series
-                        val welchSeriesL = PafAnalyzer.welchPeakSeries(res.rawLeft,  res.fs)
-                        val welchSeriesR = PafAnalyzer.welchPeakSeries(res.rawRight, res.fs)
-                        val fftSeriesL   = PafAnalyzer.slidingFftPeakSeries(res.rawLeft,  res.fs)
-                        val fftSeriesR   = PafAnalyzer.slidingFftPeakSeries(res.rawRight, res.fs)
-
-                        // times of PAF peaks
-                        val fftTimeL   = fftSeriesL.maxByOrNull { it.peakDb }?.time ?: Double.NaN
-                        val fftTimeR   = fftSeriesR.maxByOrNull { it.peakDb }?.time ?: Double.NaN
-
-                        val welchTimeL = welchSeriesL.maxByOrNull { it.peakDb }?.time ?: Double.NaN
-                        val welchTimeR = welchSeriesR.maxByOrNull { it.peakDb }?.time ?: Double.NaN
+                        val res = PafAnalyzer.analyze(cleanedStream)
 
                         runOnUiThread {
-                            // update results
                             resultView.text = res.format()
-                            plot(chartWelch, welchSeriesL, welchSeriesR, "Left Welch", Color.BLUE, "Right Welch", Color.RED)
-                            plot(chartFft,   fftSeriesL,   fftSeriesR,   "Left FFT",   Color.CYAN,  "Right FFT",   Color.MAGENTA)
 
                             noteView.text = buildString {
-                                append("Welch PAF: L=${"%.1f".format(res.welchL)} Hz @ ${"%.2f".format(welchTimeL)} s, ")
-                                append("R=${"%.1f".format(res.welchR)} Hz @ ${"%.2f".format(welchTimeR)} s.\n")
-                                append("FFT PAF:   L=${"%.1f".format(res.pafL)} Hz @ ${"%.2f".format(fftTimeL)} s, ")
-                                append("R=${"%.1f".format(res.pafR)} Hz @ ${"%.2f".format(fftTimeR)} s.\n")
-
-
-                                append("Welch: averaged PSD over sub-windows (window=${PafAnalyzer.welchWindowSec}s, ")
+                                append("IAF (PAF): ${"%.2f".format(res.iafHz)} Hz\n")
+                                append("Welch parameters: window=${PafAnalyzer.welchWindowSec}s, ")
                                 append("sub-window=${PafAnalyzer.welchSubWindowSec}s, ")
-                                append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%).")
-                                append("FFT: single-window PSD (window=${PafAnalyzer.welchWindowSec}s, ")
-                                append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%).\n")
-
+                                append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%.\n")
                             }
 
                             progressBar.visibility = View.GONE
                         }
                     }
-                } ?: runOnUiThread {
-                    resultView.text = "Unable to open ZIP."
-                    progressBar.visibility = View.GONE
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -216,29 +150,5 @@ val res = PafAnalyzer.analyze(cleanedStream)
                 }
             }
         }.start()
-    }
-    
-    private fun plot(
-        chart: LineChart,
-        seriesL: List<PafAnalyzer.PeakPoint>,
-        seriesR: List<PafAnalyzer.PeakPoint>,
-        labelL: String,
-        colorL: Int,
-        labelR: String,
-        colorR: Int
-    ) {
-        chart.clear()
-        val entriesL = seriesL.map { Entry(it.time.toFloat(), it.peakDb.toFloat()) }
-        val entriesR = seriesR.map { Entry(it.time.toFloat(), it.peakDb.toFloat()) }
-        val setL = LineDataSet(entriesL, labelL).apply {
-            this.color = colorL
-            setCircleColor(colorL)
-        }
-        val setR = LineDataSet(entriesR, labelR).apply {
-            this.color = colorR
-            setCircleColor(colorR)
-        }
-        chart.data = LineData(setL, setR)
-        chart.invalidate()
     }
 }
