@@ -76,8 +76,9 @@ object PafAnalyzer {
         val timesAll = parseTimes(rawTs)
 
         // Detect fs
-        val fs = detectFs(rows)
-
+//        val fs = detectFs(rows)
+// FIXED SAMPLING RATE FOR MUSE RAW EEG
+val fs = 256.0
         // Trim 10 seconds at start/end
         val startIdx = timesAll.indexOfFirst { it >= timesAll.first() + 10 }
         val endIdx   = timesAll.indexOfLast  { it <= timesAll.last()  - 10 }
