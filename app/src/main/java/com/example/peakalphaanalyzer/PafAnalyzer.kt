@@ -50,6 +50,7 @@ object PafAnalyzer {
 
 //rg
 private fun detectFs(rows: List<Array<String>>): Double {
+
     // 1. RAW EEG present → 256 Hz
     val hasRaw =
         rows.first().size > 24 &&
@@ -68,13 +69,17 @@ private fun detectFs(rows: List<Array<String>>): Double {
 
     if (hasBandpower) return 10.0
 
-    // 3. Fallback: timestamp-based estimate (rarely used)
-    val times = parseTimes(rows.map { it[0] })
+    // 3. Fallback: timestamp-based estimate
+    val rawTs = rows.map { it[0] }
+    val times = parseTimes(rawTs)
+
     val uniq = times.distinct().sorted()
     val deltas = uniq.zipWithNext().map { it.second - it.first }.filter { it > 0 }
     val dt = deltas.sorted()[deltas.size / 2]
+
     return 1.0 / dt
 }
+
 
 
 
