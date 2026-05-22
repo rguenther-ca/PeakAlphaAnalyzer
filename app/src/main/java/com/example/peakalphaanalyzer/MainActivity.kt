@@ -132,12 +132,14 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             resultView.text = res.format()
 
-                            noteView.text = buildString {
-                                append("IAF (PAF): ${"%.2f".format(res.iafHz)} Hz\n")
-                                append("Welch parameters: window=${PafAnalyzer.welchWindowSec}s, ")
-                                append("sub-window=${PafAnalyzer.welchSubWindowSec}s, ")
-                                append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%.\n")
-                            }
+noteView.text = buildString {
+    append("IAF (PAF): ${"%.2f".format(res.iafHz)} Hz\n")
+    append("Confidence: ${"%.2f".format(res.confidence)} (0–1)\n")
+    append("Welch parameters: window=${PafAnalyzer.welchWindowSec}s, ")
+    append("sub-window=${PafAnalyzer.welchSubWindowSec}s, ")
+    append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%.\n")
+}
+
 
                             progressBar.visibility = View.GONE
                         }
