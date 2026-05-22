@@ -38,29 +38,7 @@ object PafAnalyzer {
     }
 
     // --- Sampling rate detection (unchanged ingestion) ---
-    private fun detectFs(rows: List<Array<String>>): Double {
-        val rawTs = rows.map { it[0] }
-        val times = parseTimes(rawTs)
-
-        // Count repeats per timestamp
-        val repeats = mutableListOf<Int>()
-        var count = 1
-        for (i in 1 until times.size) {
-            if (times[i] == times[i - 1]) count++
-            else { repeats.add(count); count = 1 }
-        }
-        repeats.add(count)
-
-        val medianRepeat = repeats.sorted()[repeats.size / 2].toDouble()
-
-        val uniq = times.distinct().sorted()
-        val deltas = uniq.zipWithNext().map { it.second - it.first }.filter { it > 0 }
-        val dt = deltas.sorted()[deltas.size / 2]
-
-        return medianRepeat / dt
-    }
-
-    // --- MAIN ANALYSIS: compute IAF ---
+       // --- MAIN ANALYSIS: compute IAF ---
     fun analyze(stream: java.io.InputStream): IafResult {
 
         val reader = CSVReader(InputStreamReader(stream))
