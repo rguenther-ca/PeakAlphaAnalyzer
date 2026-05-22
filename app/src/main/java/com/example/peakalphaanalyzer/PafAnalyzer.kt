@@ -82,7 +82,6 @@ private fun detectFs(rows: List<Array<String>>): Double {
 
 
 
-
     fun analyze(stream: java.io.InputStream): PafResult {
         val reader = CSVReader(InputStreamReader(stream))
         val all = reader.readAll()
@@ -113,7 +112,7 @@ private fun detectFs(rows: List<Array<String>>): Double {
             sortedD[sortedD.size / 2]
         }
         //val fs = 1.0 / dt
-		val fs = detectFs(rawTs)
+		val fs = detectFs(rows)
 
         // --- Trim 10s at start/end using original timesAll ---
         val startIdx = timesAll.indexOfFirst { it >= timesAll.first() + 10 }
@@ -200,7 +199,7 @@ private fun detectFs(rows: List<Array<String>>): Double {
         val dt = times[1] - times[0]
         if (dt <= 0) throw CsvFormatException("Invalid sampling interval.")
         //val fs = 1.0 / dt
-val fs = detectFs(rawTs)
+val fs = detectFs(rows)
 
 // 4) Ora uso 'times' (deduplicati e ordinati) per tutti i passi successivi
 //    incluso trimming, interpolazione e quant'altro.
