@@ -1,4 +1,3 @@
-// PafAnalyzer.kt
 package com.example.peakalphaanalyzer
 
 import com.opencsv.CSVReader
@@ -12,11 +11,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.PI
 import kotlin.math.cos
-import kotlin.math.log10
 
 object PafAnalyzer {
 
-    class CsvFormatException(msg: String): Exception(msg)
+    class CsvFormatException(msg: String) : Exception(msg)
     private val transformer = FastFourierTransformer(DftNormalization.STANDARD)
 
     // Welch parameters
@@ -28,7 +26,6 @@ object PafAnalyzer {
         val fs: Double,
         val duration: Double,
         val iafHz: Double,
-        val welchPaf: Double,
         val rawPosterior: DoubleArray
     ) {
         fun format(): String = buildString {
@@ -37,15 +34,13 @@ object PafAnalyzer {
         }
     }
 
-    // --- Sampling rate detection (unchanged ingestion) ---
-       // --- MAIN ANALYSIS: compute IAF ---
     fun analyze(stream: java.io.InputStream): IafResult {
 
         val reader = CSVReader(InputStreamReader(stream))
         val all = reader.readAll()
         if (all.size <= 1) throw CsvFormatException("Empty CSV")
 
-        // Filter HeadBandOn=1
+        // Filter HeadBandOn = 1
         val rows = all.drop(1).filter { it.size > 37 && it[37] == "1" }
         if (rows.size < 2) throw CsvFormatException("No valid segment.")
 
@@ -53,18 +48,17 @@ object PafAnalyzer {
         val rawTs = rows.mapNotNull { it[0].takeIf { t -> t.isNotBlank() } }
         val timesAll = parseTimes(rawTs)
 
-        // Detect fs
-//        val fs = detectFs(rows)
-// FIXED SAMPLING RATE FOR MUSE RAW EEG
-val fs = 256.0
+        // FIXED MUSE RAW EEG SAMPLING RATE
+        val fs = 256.0
+
         // Trim 10 seconds at start/end
         val startIdx = timesAll.indexOfFirst { it >= timesAll.first() + 10 }
-        val endIdx   = timesAll.indexOfLast  { it <= timesAll.last()  - 10 }
+        val endIdx = timesAll.indexOfLast { it <= timesAll.last() - 10 }
         if (startIdx < 0 || endIdx <= startIdx) throw CsvFormatException("Invalid interval after trimming.")
 
         val tSeg = timesAll.subList(startIdx, endIdx)
 
-        // POSTERIOR CHANNELS ONLY (TP9 idx 21, TP10 idx 24)
+        // Posterior channels only: TP9 (21), TP10 (24)
         val tp9All = rows.map { it[21].toDouble() }
         val tp10All = rows.map { it[24].toDouble() }
 
@@ -72,7 +66,7 @@ val fs = 256.0
             .subList(startIdx, endIdx)
             .toDoubleArray()
 
-        // Interpolate to uniform grid
+        // Pair timestamps with posterior signal
         val paired = tSeg.zip(posteriorSeg.toList())
             .distinctBy { it.first }
             .sortedBy { it.first }
@@ -82,11 +76,19 @@ val fs = 256.0
         val tUnique = paired.map { it.first }.toDoubleArray()
         val yUnique = paired.map { it.second }.toDoubleArray()
 
-        val spline = SplineInterpolator()
-        val interp = spline.interpolate(tUnique, yUnique)
-        val y = DoubleArray(tUnique.size) { interp.value(tUnique[it]) }
+        // --- RESAMPLE TO TRUE 256 Hz GRID (critical fix) ---
+        val spline = SplineInterpolator().interpolate(tUnique, yUnique)
 
-        val duration = tUnique.last() - tUnique.first()
+        val t0 = tUnique.first()
+        val t1 = tUnique.last()
+        val nUniform = ((t1 - t0) * fs).toInt().coerceAtLeast(2)
+
+        val y = DoubleArray(nUniform) { k ->
+            val tk = t0 + k / fs
+            spline.value(tk)
+        }
+
+        val duration = t1 - t0
 
         // Compute Welch PSD PAF (IAF)
         val iaf = computeWelchPAF(y, fs)
@@ -95,7 +97,6 @@ val fs = 256.0
             fs = fs,
             duration = duration,
             iafHz = iaf,
-            welchPaf = iaf,
             rawPosterior = y
         )
     }
@@ -136,6 +137,7 @@ val fs = 256.0
 
         val psd = psdAcc.map { it / count }
 
+        // Search for peak alpha frequency (PAF) in 8–13 Hz
         val idxs = psd.indices.filter { i -> i * fs / nfft in 8.0..13.0 }
         val i0 = idxs.maxByOrNull { psd[it] } ?: return Double.NaN
 
