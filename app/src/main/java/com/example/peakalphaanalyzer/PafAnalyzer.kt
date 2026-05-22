@@ -48,6 +48,35 @@ object PafAnalyzer {
         }
     }
 
+//rg
+private fun detectFs(rawTs: List<String>): Double {
+    // 1. Parse timestamps → seconds since start
+    val times = parseTimes(rawTs)
+
+    // 2. Count repeats per timestamp
+    val repeats = times
+        .zipWithNext()
+        .fold(mutableListOf(1)) { acc, (a, b) ->
+            if (a == b) acc[acc.lastIndex] = acc.last() + 1
+            else acc.add(1)
+            acc
+        }
+
+    // 3. Median repeat count (robust against spikes)
+    val sortedRepeats = repeats.sorted()
+    val medianRepeat = sortedRepeats[sortedRepeats.size / 2].toDouble()
+
+    // 4. Compute median timestamp step (unique timestamps only)
+    val uniq = times.distinct().sorted()
+    val deltas = uniq.zipWithNext().map { it.second - it.first }.filter { it > 0 }
+    val sortedD = deltas.sorted()
+    val dt = sortedD[sortedD.size / 2]
+
+    // 5. Sampling rate = repeats per timestamp / timestamp step
+    return medianRepeat / dt
+}
+
+
     fun analyze(stream: java.io.InputStream): PafResult {
         val reader = CSVReader(InputStreamReader(stream))
         val all = reader.readAll()
@@ -77,8 +106,9 @@ object PafAnalyzer {
         } else {
             sortedD[sortedD.size / 2]
         }
-        //RG attempt val fs = 1.0 / dt
-		val fs = 256.0
+        //val fs = 1.0 / dt
+		val fs = detectFs(rawTs)
+
         // --- Trim 10s at start/end using original timesAll ---
         val startIdx = timesAll.indexOfFirst { it >= timesAll.first() + 10 }
         val endIdx = timesAll.indexOfLast  { it <= timesAll.last()  - 10 }
@@ -163,8 +193,9 @@ object PafAnalyzer {
 // 3) Ricalcolo dt e fs sul primo intervallo valido
         val dt = times[1] - times[0]
         if (dt <= 0) throw CsvFormatException("Invalid sampling interval.")
-        //RG attempt val fs = 1.0 / dt
-		val fs = 256.0
+        //val fs = 1.0 / dt
+val fs = detectFs(rawTs)
+
 // 4) Ora uso 'times' (deduplicati e ordinati) per tutti i passi successivi
 //    incluso trimming, interpolazione e quant'altro.
 
