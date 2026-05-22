@@ -49,32 +49,33 @@ object PafAnalyzer {
     }
 
 //rg
-private fun detectFs(rawTs: List<String>): Double {
-    // 1. Parse timestamps → seconds since start
-    val times = parseTimes(rawTs)
+private fun detectFs(rows: List<Array<String>>): Double {
+    // 1. RAW EEG present → 256 Hz
+    val hasRaw =
+        rows.first().size > 24 &&
+        rows.first()[21].isNotBlank() &&
+        rows.first()[22].isNotBlank() &&
+        rows.first()[23].isNotBlank() &&
+        rows.first()[24].isNotBlank()
 
-    // 2. Count repeats per timestamp
-    val repeats = times
-        .zipWithNext()
-        .fold(mutableListOf(1)) { acc, (a, b) ->
-            if (a == b) acc[acc.lastIndex] = acc.last() + 1
-            else acc.add(1)
-            acc
-        }
+    if (hasRaw) return 256.0
 
-    // 3. Median repeat count (robust against spikes)
-    val sortedRepeats = repeats.sorted()
-    val medianRepeat = sortedRepeats[sortedRepeats.size / 2].toDouble()
+    // 2. Bandpower present → 10 Hz
+    val hasBandpower =
+        rows.first().size > 12 &&
+        rows.first()[9].isNotBlank() &&
+        rows.first()[10].isNotBlank()
 
-    // 4. Compute median timestamp step (unique timestamps only)
+    if (hasBandpower) return 10.0
+
+    // 3. Fallback: timestamp-based estimate (rarely used)
+    val times = parseTimes(rows.map { it[0] })
     val uniq = times.distinct().sorted()
     val deltas = uniq.zipWithNext().map { it.second - it.first }.filter { it > 0 }
-    val sortedD = deltas.sorted()
-    val dt = sortedD[sortedD.size / 2]
-
-    // 5. Sampling rate = repeats per timestamp / timestamp step
-    return medianRepeat / dt
+    val dt = deltas.sorted()[deltas.size / 2]
+    return 1.0 / dt
 }
+
 
 
     fun analyze(stream: java.io.InputStream): PafResult {
