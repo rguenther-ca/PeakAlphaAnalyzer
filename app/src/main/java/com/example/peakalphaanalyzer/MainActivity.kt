@@ -1,7 +1,6 @@
-package com.example.pafanalyzer
+package com.example.peakalphaanalyzer
 
 import android.Manifest
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.*
@@ -19,18 +18,24 @@ import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.BufferedReader
+import java.io.FileReader
 import kotlin.concurrent.thread
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sqrt
+import kotlin.math.abs
+import kotlin.math.pow
 
 /**
- * MainActivity.kt
+ * MainActivity.kt (fixed)
  *
- * Single-file UI + analyzer integration.
- * - Lets user pick a CSV file from storage
- * - Runs PafAnalyzer.analyzeFile in background
- * - Displays Argmax, Parabolic, CoG, Rapid-IAF, SNR, Prominence, Width, continuity
- * - Shows a spectrogram with ridge overlay (SpectrogramView embedded)
+ * - Adds missing kotlin.math imports (ln etc.)
+ * - Uses Double arithmetic for dB normalization to avoid Float/Double ambiguity
+ * - Keeps embedded SpectrogramView and integration with PafAnalyzer
  *
- * NOTE: This activity is intentionally self-contained and uses the PafAnalyzer class above.
+ * Ensure package path matches file location.
  */
 
 class MainActivity : AppCompatActivity() {
@@ -161,7 +166,7 @@ class MainActivity : AppCompatActivity() {
     // SpectrogramView (embedded)
     // -------------------------
     inner class SpectrogramView(context: android.content.Context) : View(context) {
-        private var specResult: SpectrogramResult? = null
+        private var specResult: PafAnalyzer.SpectrogramResult? = null
         private var bmp: Bitmap? = null
         private val paint = Paint()
         private val ridgePaint = Paint().apply {
@@ -176,7 +181,7 @@ class MainActivity : AppCompatActivity() {
             isAntiAlias = true
         }
 
-        fun setSpectrogram(res: SpectrogramResult) {
+        fun setSpectrogram(res: PafAnalyzer.SpectrogramResult) {
             specResult = res
             // build bitmap on background thread
             thread {
@@ -233,16 +238,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        private fun buildBitmapFromSpectrogram(res: SpectrogramResult): Bitmap {
+        private fun buildBitmapFromSpectrogram(res: PafAnalyzer.SpectrogramResult): Bitmap {
             val cols = res.times.size
             val rows = res.freqs.size
             val bmp = Bitmap.createBitmap(cols, rows, Bitmap.Config.ARGB_8888)
             for (t in 0 until cols) {
                 for (f in 0 until rows) {
                     val p = res.spectrogram[t][f]
-                    val db = (10 * ln(p + 1e-12) / ln(10.0)).toFloat()
-                    // normalize -80..0 dB to 0..1
-                    val norm = ((db + 80f) / 80f).coerceIn(0f, 1f)
+                    // compute dB using Double math to avoid Float/Double ambiguity
+                    val db = 10.0 * ln(p + 1e-12) / ln(10.0)
+                    // normalize -80..0 dB to 0..1 using Double, then convert to Float
+                    val normD = ((db + 80.0) / 80.0).coerceIn(0.0, 1.0)
+                    val norm = normD.toFloat()
                     val hsv = floatArrayOf((1f - norm) * 240f, 1f, norm)
                     val color = Color.HSVToColor(hsv)
                     bmp.setPixel(t, rows - 1 - f, color)
