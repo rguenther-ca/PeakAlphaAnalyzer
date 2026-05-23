@@ -49,9 +49,9 @@ class MainActivity : AppCompatActivity() {
 
     private val requestPermissionCode = 1234
 
-    private val pickFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { handlePickedFile(it) }
-    }
+private val pickFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    if (uri != null) handlePickedFile(uri)
+}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
