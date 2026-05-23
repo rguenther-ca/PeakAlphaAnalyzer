@@ -1,4 +1,3 @@
-// MainActivity.kt
 package com.example.peakalphaanalyzer
 
 import android.content.Intent
@@ -10,11 +9,14 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.components.XAxis
-import com.github.mikephil.charting.data.*
-import com.github.mikephil.charting.formatter.ValueFormatter
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
 import java.io.BufferedInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
+import kotlin.concurrent.thread
+import kotlin.math.ln
 
 class MainActivity : AppCompatActivity() {
 
@@ -46,25 +48,18 @@ class MainActivity : AppCompatActivity() {
 
         resultView.setTextIsSelectable(true)
 
-        etWindow.setText("6.0")
-        etSubWindow.setText("3.0")
-        etOverlap.setText("0.25")
+        etWindow.setText(PafAnalyzer.welchWindowSec.toString())
+        etSubWindow.setText(PafAnalyzer.welchSubWindowSec.toString())
+        etOverlap.setText(PafAnalyzer.welchOverlap.toString())
 
         chartWelch.description.isEnabled = false
         chartWelch.axisRight.isEnabled = false
         chartWelch.xAxis.position = XAxis.XAxisPosition.BOTTOM
-        chartWelch.xAxis.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float) = String.format("%.2f s", value)
-        }
-        chartWelch.axisLeft.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float) = String.format("%.1f dB", value)
-        }
-        chartWelch.marker = MyMarkerView(this)
 
         btnApply.setOnClickListener {
-            PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: 6.0
-            PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: 3.0
-            PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: 0.25
+            PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: PafAnalyzer.welchWindowSec
+            PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: PafAnalyzer.welchSubWindowSec
+            PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: PafAnalyzer.welchOverlap
 
             lastUri?.let { handleZipUri(it) }
         }
@@ -95,34 +90,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleZipUri(uri: Uri) {
         progressBar.visibility = View.VISIBLE
+        resultView.text = ""
+        noteView.text = ""
 
-        Thread {
+        thread {
             try {
                 contentResolver.openInputStream(uri)?.use { stream ->
                     ZipInputStream(BufferedInputStream(stream)).use { zis ->
                         var entry = zis.nextEntry
-                        var csv: InputStream? = null
+                        var csvStream: InputStream? = null
                         while (entry != null) {
-                            if (entry.name.endsWith(".csv")) {
-                                csv = zis; break
+                            if (entry.name.endsWith(".csv", ignoreCase = true) || entry.name.endsWith(".txt", ignoreCase = true)) {
+                                csvStream = zis; break
                             }
                             entry = zis.nextEntry
                         }
-                        if (csv == null) {
+                        if (csvStream == null) {
                             runOnUiThread {
                                 resultView.text = "No CSV found in ZIP."
                                 progressBar.visibility = View.GONE
                             }
-                            return@Thread
+                            return@thread
                         }
 
-                        val rawBytes = zis.readBytes()
-                        val rawText = rawBytes.toString(Charsets.UTF_8)
-
-                        val cleanedText = rawText
+                        val rawBytes = csvStream.readBytes()
+                        val cleanedText = rawBytes.toString(Charsets.UTF_8)
                             .lineSequence()
                             .filter { it.isNotBlank() }
-                            .filter { it.contains(",") }
+                            .filter { it.contains(",") || it.contains("\t") }
                             .joinToString("\n")
 
                         val cleanedStream = cleanedText.byteInputStream(Charsets.UTF_8)
@@ -132,14 +127,18 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             resultView.text = res.format()
 
-noteView.text = buildString {
-    append("IAF (PAF): ${"%.2f".format(res.iafHz)} Hz\n")
-    append("Confidence: ${"%.2f".format(res.confidence)} (0–1)\n")
-    append("Welch parameters: window=${PafAnalyzer.welchWindowSec}s, ")
-    append("sub-window=${PafAnalyzer.welchSubWindowSec}s, ")
-    append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%.\n")
-}
+                            noteView.text = buildString {
+                                append("IAF: ${"%.2f".format(res.iafHz)} Hz (${res.iafMethod})\n")
+                                append("Confidence: ${"%.2f".format(res.confidence)} (0–1)\n")
+                                append("Peak power: ${"%.4f".format(res.peakPower)}, alpha mean: ${"%.4f".format(res.alphaMeanPower)}\n")
+                                append("Peak width: ${"%.2f".format(res.peakWidthHz)} Hz, PAF SD: ${"%.3f".format(res.pafStdAcrossWindows)}\n")
+                                append("Welch: sub-window=${PafAnalyzer.welchSubWindowSec}s, overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%.\n")
+                                if (res.confidence < 0.6) {
+                                    append("\n**Warning:** IAF confidence is low. Re-record with relaxed jaw, supported head, eyes closed.\n")
+                                }
+                            }
 
+                            plotPsd(res.freqs, res.psd)
 
                             progressBar.visibility = View.GONE
                         }
@@ -151,6 +150,22 @@ noteView.text = buildString {
                     progressBar.visibility = View.GONE
                 }
             }
-        }.start()
+        }
+    }
+
+    private fun plotPsd(freqs: DoubleArray, psd: DoubleArray) {
+        val entries = mutableListOf<Entry>()
+        for (i in freqs.indices) {
+            val f = freqs[i].toFloat()
+            val p = 10f * ln((psd[i].toFloat() + 1e-12f).toDouble()).toFloat()
+            entries.add(Entry(f, p))
+        }
+        val set = LineDataSet(entries, "PSD (dB)")
+        set.color = Color.BLUE
+        set.setDrawCircles(false)
+        set.lineWidth = 1.2f
+        val data = LineData(set)
+        chartWelch.data = data
+        chartWelch.invalidate()
     }
 }
