@@ -9,16 +9,19 @@ import androidx.appcompat.app.AppCompatActivity
 import java.io.BufferedInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
+import kotlin.concurrent.thread
 
 /**
  * MainActivity.kt
  *
- * Simple UI that:
+ * Minimal UI integration:
  * - Accepts a shared ZIP (or VIEW intent) containing a CSV
  * - Extracts the first CSV, cleans it, and passes it to PafAnalyzer.analyze()
  * - Displays argmax, parabolic-refined, CoG, rapid-IAF, chosen IAF, and confidence
+ * - Renders spectrogram and receives ridge callback for decision logic
  *
  * Ensure activity_main.xml contains:
+ * - SpectrogramView with id spectrogramView
  * - EditTexts: etWindow, etSubWindow, etOverlap
  * - Button: btnApply
  * - TextViews: resultTextView, noteTextView
@@ -31,6 +34,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etOverlap: EditText
     private lateinit var btnApply: Button
 
+    private lateinit var spectroView: SpectrogramView
     private lateinit var resultView: TextView
     private lateinit var noteView: TextView
     private lateinit var progressBar: ProgressBar
@@ -41,25 +45,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val spectroView = findViewById<SpectrogramView>(R.id.spectrogramView)
-
-// optional: receive ridge results for decision logic
-spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
-    override fun onRidgeComputed(ridgeFreqs: DoubleArray, continuity: Double) {
-        // runs on UI thread
-        // Example: update UI or feed back into PafAnalyzer decision logic
-        runOnUiThread {
-            noteView.text = "Ridge continuity: ${"%.2f".format(continuity)}"
-            // store or use ridgeFreqs as needed
-        }
-    }
-})
-
         etWindow = findViewById(R.id.etWindow)
         etSubWindow = findViewById(R.id.etSubWindow)
         etOverlap = findViewById(R.id.etOverlap)
         btnApply = findViewById(R.id.btnApply)
 
+        spectroView = findViewById(R.id.spectrogramView)
         resultView = findViewById(R.id.resultTextView)
         noteView = findViewById(R.id.noteTextView)
         progressBar = findViewById(R.id.progressBar)
@@ -70,33 +61,42 @@ spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
         etSubWindow.setText("3.0")
         etOverlap.setText("0.25")
 
+        // Receive ridge callback for decision logic or UI updates
+        spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
+            override fun onRidgeComputed(ridgeFreqs: DoubleArray, continuity: Double) {
+                runOnUiThread {
+                    noteView.text = "Ridge continuity: ${"%.2f".format(continuity)}"
+                    // Optionally: use ridgeFreqs to refine chosen IAF or display timeline
+                }
+            }
+        })
+
         btnApply.setOnClickListener {
-            // update analyzer parameters
             PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: 6.0
             PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: 3.0
             PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: 0.25
 
-            lastUri?.let { uri -> handleZipUri(uri) } ?: run {
+            lastUri?.let { handleZipUri(it) } ?: run {
                 resultView.text = "No file selected. Share or view a ZIP containing CSV."
             }
         }
 
         try {
             when (intent?.action) {
-                Intent.ACTION_VIEW -> intent.data?.also { uri ->
-                    lastUri = uri
-                    handleZipUri(uri)
+                Intent.ACTION_VIEW -> intent.data?.also {
+                    lastUri = it
+                    handleZipUri(it)
                 }
-                Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.also { uri ->
-                    lastUri = uri
-                    handleZipUri(uri)
+                Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.also {
+                    lastUri = it
+                    handleZipUri(it)
                 }
                 Intent.ACTION_SEND_MULTIPLE -> intent
                     .getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
                     ?.firstOrNull()
-                    ?.also { uri ->
-                        lastUri = uri
-                        handleZipUri(uri)
+                    ?.also {
+                        lastUri = it
+                        handleZipUri(it)
                     }
                 else -> resultView.text = "Share or view a ZIP containing CSV."
             }
@@ -109,7 +109,7 @@ spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
         progressBar.visibility = View.VISIBLE
         resultView.text = "Processing..."
 
-        Thread {
+        thread {
             try {
                 contentResolver.openInputStream(uri)?.use { stream ->
                     ZipInputStream(BufferedInputStream(stream)).use { zis ->
@@ -127,14 +127,12 @@ spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
                                 resultView.text = "No CSV found in ZIP."
                                 progressBar.visibility = View.GONE
                             }
-                            return@Thread
+                            return@thread
                         }
 
-                        // Read CSV bytes from the current ZipInputStream entry
                         val rawBytes = csvStream.readBytes()
                         val rawText = rawBytes.toString(Charsets.UTF_8)
 
-                        // Basic cleaning: remove blank lines and lines without commas
                         val cleanedText = rawText
                             .lineSequence()
                             .filter { it.isNotBlank() }
@@ -143,11 +141,7 @@ spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
 
                         val cleanedStream = cleanedText.byteInputStream(Charsets.UTF_8)
 
-                        // Run analysis
                         val res = PafAnalyzer.analyze(cleanedStream)
-
-                        val spectroView = findViewById<SpectrogramView>(R.id.spectrogramView)
-                        spectroView.setFromPafResult(res)
 
                         runOnUiThread {
                             resultView.text = res.format()
@@ -160,6 +154,10 @@ spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
                                 append("Confidence: ${"%.2f".format(res.confidence)} (0–1)\n")
                                 append("Welch params: window=${PafAnalyzer.welchWindowSec}s, sub=${PafAnalyzer.welchSubWindowSec}s, overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%\n")
                             }
+
+                            // Render spectrogram and compute ridge (view will call back)
+                            spectroView.setFromPafResult(res)
+
                             progressBar.visibility = View.GONE
                         }
                     }
@@ -170,6 +168,6 @@ spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
                     progressBar.visibility = View.GONE
                 }
             }
-        }.start()
+        }
     }
 }
