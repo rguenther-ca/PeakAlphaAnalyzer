@@ -11,21 +11,32 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.*
 
+/**
+ * PAFAnalyzer.kt
+ *
+ * Parses Muse-style CSV input, resamples posterior channels, computes Welch PSD,
+ * extracts multiple IAF estimates (argmax, parabolic-refined, CoG, rapid-IAF),
+ * computes confidence and returns diagnostics.
+ *
+ * Dependencies required in build.gradle:
+ * implementation 'com.opencsv:opencsv:5.7.1'
+ * implementation 'org.apache.commons:commons-math3:3.6.1'
+ */
 object PafAnalyzer {
 
     class CsvFormatException(msg: String) : Exception(msg)
     private val transformer = FastFourierTransformer(DftNormalization.STANDARD)
 
-    // --- Tunable parameters ---
+    // Tunable parameters (modifiable from UI)
     var welchWindowSec: Double = 6.0
     var welchSubWindowSec: Double = 3.0
     var welchOverlap: Double = 0.25
 
     // Artifact thresholds
-    var accelThresholdG: Double = 0.6        // accelerometer magnitude threshold (g)
-    var hfRatioThreshold: Double = 0.6      // HF (30-80Hz) / total power ratio indicating EMG
+    var accelThresholdG: Double = 0.6
+    var hfRatioThreshold: Double = 0.6
 
-    // Column indices for Muse CSV (update if your CSV differs)
+    // Muse CSV column indices (adjust if your CSV differs)
     private const val IDX_RAW_TP9 = 21
     private const val IDX_RAW_TP10 = 24
     private const val IDX_HEADBANDON = 37
@@ -36,7 +47,11 @@ object PafAnalyzer {
     data class IafResult(
         val fs: Double,
         val duration: Double,
-        val iafHz: Double,
+        val iafArgmaxHz: Double,
+        val iafParabolicHz: Double,
+        val iafCogHz: Double,
+        val rapidIafHz: Double,
+        val chosenIafHz: Double,
         val iafMethod: String,
         val confidence: Double,
         val peakPower: Double,
@@ -49,16 +64,15 @@ object PafAnalyzer {
     ) {
         fun format(): String = buildString {
             append("fs=${"%.1f".format(fs)} Hz, dur=${"%.1f".format(duration)} s\n")
-            append("IAF: ${"%.2f".format(iafHz)} Hz (${iafMethod})\n")
+            append("Chosen IAF: ${"%.2f".format(chosenIafHz)} Hz (${iafMethod})\n")
             append("Confidence: ${"%.2f".format(confidence)} (0–1)\n")
-            append("Peak power: ${"%.4f".format(peakPower)}, alpha mean: ${"%.4f".format(alphaMeanPower)}\n")
+            append("Peak power: ${"%.6f".format(peakPower)}, alpha mean: ${"%.6f".format(alphaMeanPower)}\n")
             append("Peak width: ${"%.2f".format(peakWidthHz)} Hz, PAF SD across windows: ${"%.3f".format(pafStdAcrossWindows)}\n")
         }
     }
 
     /**
      * Analyze a Muse CSV InputStream and return IAF result.
-     * Expects Muse column order similar to the attached file.
      */
     fun analyze(stream: java.io.InputStream): IafResult {
         val reader = CSVReader(InputStreamReader(stream))
@@ -96,7 +110,7 @@ object PafAnalyzer {
         val accYAll = rows.map { it.getOrNull(IDX_ACC_Y)?.toDoubleOrNull() ?: 0.0 }.subList(startIdx, endIdx)
         val accZAll = rows.map { it.getOrNull(IDX_ACC_Z)?.toDoubleOrNull() ?: 0.0 }.subList(startIdx, endIdx)
 
-        // Pair timestamps with posterior signal and remove duplicate timestamps (packet timestamps)
+        // Pair timestamps with posterior signal and remove duplicate timestamps
         val paired = tSeg.zip(posteriorSeg.toList())
             .distinctBy { it.first }
             .sortedBy { it.first }
@@ -153,9 +167,22 @@ object PafAnalyzer {
         val alphaIdxs = freqsArray.indices.filter { freqsArray[it] in 8.0..13.0 }
         if (alphaIdxs.isEmpty()) throw CsvFormatException("No alpha frequency bins available.")
 
-        // Peak detection
+        // Argmax (raw peak bin)
         val peakIdx = alphaIdxs.maxByOrNull { psdSmoothed[it] } ?: alphaIdxs.first()
-        val peakFreq = freqsArray[peakIdx]
+        val argmaxHz = freqsArray[peakIdx]
+
+        // Parabolic refinement around peak
+        val parabolicHz = parabolicRefine(freqsArray, psdSmoothed, peakIdx)
+
+        // Center of Gravity
+        val cogHz = centerOfGravity(freqsArray, psdSmoothed, 8.0, 13.0)
+
+        // Rapid IAF: median of per-window argmaxes (windowPafs)
+        val rapidIaf = if (windowPafs.isNotEmpty()) {
+            val sorted = windowPafs.sorted()
+            sorted[sorted.size / 2]
+        } else argmaxHz
+
         val peakPower = psdSmoothed[peakIdx]
         val neighbors = alphaIdxs.filter { it != peakIdx }.map { psdSmoothed[it] }
         val alphaMean = if (neighbors.isEmpty()) peakPower else neighbors.average()
@@ -171,8 +198,8 @@ object PafAnalyzer {
 
         // Prominence (peak vs local ±1 Hz baseline)
         val hzWindow = 1.0
-        val leftHz = (peakFreq - hzWindow).coerceAtLeast(8.0)
-        val rightHz = (peakFreq + hzWindow).coerceAtMost(13.0)
+        val leftHz = (argmaxHz - hzWindow).coerceAtLeast(8.0)
+        val rightHz = (argmaxHz + hzWindow).coerceAtMost(13.0)
         val localIdxs = freqsArray.indices.filter { freqsArray[it] in leftHz..rightHz && it != peakIdx }
         val localBaseline = if (localIdxs.isEmpty()) alphaMean else localIdxs.map { psdSmoothed[it] }.average()
         val prominence = (peakPower - localBaseline) / (localBaseline + 1e-12)
@@ -181,14 +208,20 @@ object PafAnalyzer {
         val cleanPafs = windowPafs.filterIndexed { idx, _ -> windowFlags[idx] }
         val pafStd = if (cleanPafs.isEmpty()) 0.0 else std(cleanPafs)
 
-        // Decide PAF vs CoG fallback
-        val useCoG = (prominence < 0.5) || (peakWidthHz > 2.0) || (snr < 2.0)
-        val iafHz = if (!useCoG) peakFreq else {
-            val num = alphaIdxs.sumOf { i -> freqsArray[i] * psdSmoothed[i] }
-            val den = alphaIdxs.sumOf { i -> psdSmoothed[i] } + 1e-12
-            num / den
+        // Decide which IAF to choose for output
+        val parabolicValid = !parabolicHz.isNaN() && parabolicHz in 7.0..14.0
+        val useParabolic = parabolicValid && prominence >= 0.3
+        val useArgmax = !useParabolic && prominence >= 0.2 && peakWidthHz <= 3.0
+        val chosenIaf = when {
+            useParabolic -> parabolicHz
+            useArgmax -> argmaxHz
+            else -> cogHz
         }
-        val iafMethod = if (!useCoG) "PAF" else "CoG"
+        val iafMethod = when {
+            useParabolic -> "parabolic"
+            useArgmax -> "argmax"
+            else -> "cog"
+        }
 
         // Confidence scoring
         val snrScore = (snr / 6.0).coerceIn(0.0, 1.0)
@@ -200,7 +233,11 @@ object PafAnalyzer {
         return IafResult(
             fs = fs,
             duration = duration,
-            iafHz = iafHz,
+            iafArgmaxHz = argmaxHz,
+            iafParabolicHz = parabolicHz,
+            iafCogHz = cogHz,
+            rapidIafHz = rapidIaf,
+            chosenIafHz = chosenIaf,
             iafMethod = iafMethod,
             confidence = confidence,
             peakPower = peakPower,
@@ -211,6 +248,31 @@ object PafAnalyzer {
             freqs = freqsArray,
             psd = psdSmoothed
         )
+    }
+
+    // Parabolic interpolation around a peak index to refine sub-bin frequency
+    private fun parabolicRefine(freqs: DoubleArray, psd: DoubleArray, peakIdx: Int): Double {
+        val i = peakIdx
+        if (i <= 0 || i >= psd.size - 1) return Double.NaN
+        val y0 = psd[i - 1]; val y1 = psd[i]; val y2 = psd[i + 1]
+        val denom = (y0 - 2.0 * y1 + y2)
+        if (abs(denom) < 1e-12) return Double.NaN
+        val delta = 0.5 * (y0 - y2) / denom
+        val df = freqs[1] - freqs[0]
+        return freqs[i] + delta * df
+    }
+
+    // Center of Gravity in alpha band
+    private fun centerOfGravity(freqs: DoubleArray, psd: DoubleArray, lowHz: Double = 8.0, highHz: Double = 13.0): Double {
+        var num = 0.0; var den = 0.0
+        for (i in freqs.indices) {
+            val f = freqs[i]
+            if (f >= lowHz && f <= highHz) {
+                num += f * psd[i]
+                den += psd[i]
+            }
+        }
+        return if (den <= 0.0) (lowHz + highHz) / 2.0 else num / den
     }
 
     // Compute Welch PSD and per-window PAFs and flags (true = clean)
