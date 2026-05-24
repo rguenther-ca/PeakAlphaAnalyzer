@@ -14,11 +14,15 @@ import kotlin.math.*
 /**
  * PAFAnalyzer.kt
  *
- * Parses Muse-style CSV input, resamples posterior channels, computes Welch PSD,
- * extracts multiple IAF estimates (argmax, parabolic-refined, CoG, rapid-IAF),
- * computes confidence and returns diagnostics.
+ * Computes Welch PSD from Muse-style CSV and returns multiple IAF estimates:
+ * - argmax (raw bin)
+ * - parabolic refined
+ * - center-of-gravity (CoG)
+ * - rapid IAF (median of per-window peaks)
  *
- * Requires dependencies:
+ * Returns IafResult with diagnostics and raw posterior signal for spectrogram rendering.
+ *
+ * Requires:
  * implementation 'com.opencsv:opencsv:5.7.1'
  * implementation 'org.apache.commons:commons-math3:3.6.1'
  */
@@ -76,7 +80,7 @@ object PafAnalyzer {
     }
 
     /**
-     * Main entry: analyze a Muse CSV InputStream and return IAF result.
+     * Analyze a Muse CSV InputStream and return IAF result.
      */
     fun analyze(stream: java.io.InputStream): IafResult {
         val reader = CSVReader(InputStreamReader(stream))
