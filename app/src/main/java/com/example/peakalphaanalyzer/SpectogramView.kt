@@ -8,16 +8,17 @@ import kotlin.concurrent.thread
 import kotlin.math.*
 
 /**
- * SpectrogramView
+ * SpectrogramView.kt
  *
+ * Custom View that:
  * - Builds a spectrogram bitmap from a raw signal or precomputed spectrogram
  * - Detects an alpha ridge (alphaLowHz..alphaHighHz) per time frame and applies parabolic refinement
  * - Computes a ridge continuity metric (0..1)
- * - **Optional callback**: notifies a listener with the ridge array and continuity when computation completes
+ * - Optional callback: notifies a listener with the ridge array and continuity when computation completes
  *
  * Usage:
- *  - Call setFromPafResult(result) or setFromSignal(signal, fs, windowSec, stepSec) or setSpectrogram(...)
- *  - Register a listener with setRidgeListener(listener) to receive results
+ *  - spectrogramView.setRidgeListener(listener)
+ *  - spectrogramView.setFromPafResult(result) or setFromSignal(...)
  */
 class SpectrogramView @JvmOverloads constructor(
     context: Context,
@@ -25,77 +26,47 @@ class SpectrogramView @JvmOverloads constructor(
     defStyle: Int = 0
 ) : View(context, attrs, defStyle) {
 
-    /** Listener interface to receive ridge results */
     interface RidgeListener {
         /** Called on the UI thread when ridge computation completes */
         fun onRidgeComputed(ridgeFreqs: DoubleArray, continuity: Double)
     }
 
-    // Rendering state
     @Volatile private var bitmap: Bitmap? = null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ridgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.YELLOW
-        strokeWidth = 3f
-        style = Paint.Style.STROKE
+        color = Color.YELLOW; strokeWidth = 3f; style = Paint.Style.STROKE
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = 36f
+        color = Color.WHITE; textSize = 36f
     }
     private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    // Diagnostics and display arrays
     @Volatile private var ridgeFreqs: DoubleArray? = null
     @Volatile private var ridgeContinuity: Double = 0.0
     @Volatile private var freqsForDisplay: DoubleArray? = null
     @Volatile private var timesForDisplay: DoubleArray? = null
 
-    // Listener (optional)
     @Volatile private var ridgeListener: RidgeListener? = null
 
-    // Display parameters (tweakable)
     var alphaLowHz = 8.0
     var alphaHighHz = 13.0
     var ridgeToleranceHz = 0.5
 
-    // Color mapping: map normalized 0..1 to HSV hue (240 -> 0)
     private fun colorForNorm(norm: Float): Int {
         val h = (1f - norm) * 240f
         val hsv = floatArrayOf(h, 1f, norm.coerceIn(0f, 1f))
         return Color.HSVToColor(hsv)
     }
 
-    // -------------------------
-    // Public API
-    // -------------------------
-
-    /** Register or replace the ridge listener. Pass null to remove. */
     fun setRidgeListener(listener: RidgeListener?) {
         ridgeListener = listener
     }
 
-    /** Build spectrogram from a PafAnalyzer.IafResult (uses rawPosterior and fs). */
-    fun setFromPafResult(result: Any?) {
+    fun setFromPafResult(result: PafAnalyzer.IafResult?) {
         if (result == null) return
-        try {
-            val rawPosterior = result::class.java.getDeclaredField("rawPosterior").let { f ->
-                f.isAccessible = true; f.get(result) as? DoubleArray
-            } ?: return
-            val fs = result::class.java.getDeclaredField("fs").let { f ->
-                f.isAccessible = true; (f.get(result) as Number).toDouble()
-            }
-            setFromSignal(rawPosterior, fs, windowSec = 2.0, stepSec = 0.25)
-        } catch (_: Exception) {
-            // ignore reflection errors; caller can call setFromSignal directly
-        }
+        setFromSignal(result.rawPosterior, result.fs, windowSec = 2.0, stepSec = 0.25)
     }
 
-    /**
-     * Build spectrogram from raw signal.
-     * windowSec: frame length in seconds (e.g., 2.0)
-     * stepSec: hop length in seconds (e.g., 0.25)
-     */
     fun setFromSignal(signal: DoubleArray, fs: Double, windowSec: Double = 2.0, stepSec: Double = 0.25) {
         thread {
             val winN = max(4, (windowSec * fs).roundToInt())
@@ -130,21 +101,14 @@ class SpectrogramView @JvmOverloads constructor(
         }
     }
 
-    /** Directly set a precomputed spectrogram matrix (time x freq). */
     fun setSpectrogram(freqs: DoubleArray, times: DoubleArray, spectrogram: Array<DoubleArray>) {
-        thread {
-            computeRidgeAndBitmap(freqs, times, spectrogram)
-        }
+        thread { computeRidgeAndBitmap(freqs, times, spectrogram) }
     }
 
-    // -------------------------
-    // Core processing
-    // -------------------------
     private fun computeRidgeAndBitmap(freqs: DoubleArray, times: DoubleArray, spectrogram: Array<DoubleArray>) {
         val cols = spectrogram.size
         val rows = spectrogram[0].size
 
-        // compute dB and find min/max
         val dbSpec = Array(cols) { DoubleArray(rows) }
         var minDb = Double.POSITIVE_INFINITY
         var maxDb = Double.NEGATIVE_INFINITY
@@ -157,13 +121,10 @@ class SpectrogramView @JvmOverloads constructor(
                 if (db > maxDb) maxDb = db
             }
         }
-        if (!minDb.isFinite() || !maxDb.isFinite()) {
-            minDb = -80.0; maxDb = 0.0
-        }
+        if (!minDb.isFinite() || !maxDb.isFinite()) { minDb = -80.0; maxDb = 0.0 }
         val floorDb = max(minDb, -80.0)
         val ceilDb = maxDb
 
-        // compute ridge (parabolic refine on dB column)
         val ridge = DoubleArray(cols) { Double.NaN }
         val ridgePower = DoubleArray(cols) { Double.NaN }
         val alphaIdxs = freqs.indices.filter { freqs[it] >= alphaLowHz && freqs[it] <= alphaHighHz }
@@ -181,7 +142,6 @@ class SpectrogramView @JvmOverloads constructor(
             }
         }
 
-        // continuity: fraction of frames where ridge within tolerance of median and above baseline
         val validRidge = ridge.filter { it.isFinite() }
         val continuity = if (validRidge.isEmpty()) 0.0 else {
             val median = validRidge.sorted()[validRidge.size / 2]
@@ -195,7 +155,6 @@ class SpectrogramView @JvmOverloads constructor(
             within.toDouble() / cols.toDouble()
         }
 
-        // build bitmap (cols x rows)
         val bmp = Bitmap.createBitmap(cols, rows, Bitmap.Config.ARGB_8888)
         for (t in 0 until cols) {
             for (f in 0 until rows) {
@@ -206,30 +165,24 @@ class SpectrogramView @JvmOverloads constructor(
             }
         }
 
-        // atomically store results and notify UI
         freqsForDisplay = freqs
         timesForDisplay = times
         ridgeFreqs = ridge
         ridgeContinuity = continuity
         bitmap = bmp
 
-        // notify listener on UI thread
         post {
             ridgeListener?.onRidgeComputed(ridge.copyOf(), continuity)
             invalidate()
         }
     }
 
-    // -------------------------
-    // Drawing
-    // -------------------------
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(Color.BLACK)
         val bmp = bitmap
         if (bmp == null) {
-            paint.color = Color.DKGRAY
-            paint.textSize = 36f
+            paint.color = Color.DKGRAY; paint.textSize = 36f
             canvas.drawText("Spectrogram will appear after analysis", 20f, height / 2f, paint)
             return
         }
@@ -268,9 +221,6 @@ class SpectrogramView @JvmOverloads constructor(
         }
     }
 
-    // -------------------------
-    // DSP helpers
-    // -------------------------
     private fun nextPow2(n: Int): Int {
         var v = 1
         while (v < n) v = v shl 1
