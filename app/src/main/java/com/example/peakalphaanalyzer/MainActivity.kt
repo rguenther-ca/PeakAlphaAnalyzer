@@ -41,6 +41,20 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        val spectroView = findViewById<SpectrogramView>(R.id.spectrogramView)
+
+// optional: receive ridge results for decision logic
+spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
+    override fun onRidgeComputed(ridgeFreqs: DoubleArray, continuity: Double) {
+        // runs on UI thread
+        // Example: update UI or feed back into PafAnalyzer decision logic
+        runOnUiThread {
+            noteView.text = "Ridge continuity: ${"%.2f".format(continuity)}"
+            // store or use ridgeFreqs as needed
+        }
+    }
+})
+
         etWindow = findViewById(R.id.etWindow)
         etSubWindow = findViewById(R.id.etSubWindow)
         etOverlap = findViewById(R.id.etOverlap)
