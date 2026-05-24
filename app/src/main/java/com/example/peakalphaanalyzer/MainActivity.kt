@@ -1,21 +1,29 @@
-// MainActivity.kt
 package com.example.peakalphaanalyzer
 
 import android.content.Intent
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import com.github.mikephil.charting.charts.LineChart
-import com.github.mikephil.charting.components.XAxis
-import com.github.mikephil.charting.data.*
-import com.github.mikephil.charting.formatter.ValueFormatter
 import java.io.BufferedInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 
+/**
+ * MainActivity.kt
+ *
+ * Simple UI that:
+ * - Accepts a shared ZIP (or VIEW intent) containing a CSV
+ * - Extracts the first CSV, cleans it, and passes it to PafAnalyzer.analyze()
+ * - Displays argmax, parabolic-refined, CoG, rapid-IAF, chosen IAF, and confidence
+ *
+ * Ensure activity_main.xml contains:
+ * - EditTexts: etWindow, etSubWindow, etOverlap
+ * - Button: btnApply
+ * - TextViews: resultTextView, noteTextView
+ * - ProgressBar: progressBar
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var etWindow: EditText
@@ -23,7 +31,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etOverlap: EditText
     private lateinit var btnApply: Button
 
-    private lateinit var chartWelch: LineChart
     private lateinit var resultView: TextView
     private lateinit var noteView: TextView
     private lateinit var progressBar: ProgressBar
@@ -39,7 +46,6 @@ class MainActivity : AppCompatActivity() {
         etOverlap = findViewById(R.id.etOverlap)
         btnApply = findViewById(R.id.btnApply)
 
-        chartWelch = findViewById(R.id.lineChartWelch)
         resultView = findViewById(R.id.resultTextView)
         noteView = findViewById(R.id.noteTextView)
         progressBar = findViewById(R.id.progressBar)
@@ -50,41 +56,33 @@ class MainActivity : AppCompatActivity() {
         etSubWindow.setText("3.0")
         etOverlap.setText("0.25")
 
-        chartWelch.description.isEnabled = false
-        chartWelch.axisRight.isEnabled = false
-        chartWelch.xAxis.position = XAxis.XAxisPosition.BOTTOM
-        chartWelch.xAxis.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float) = String.format("%.2f s", value)
-        }
-        chartWelch.axisLeft.valueFormatter = object : ValueFormatter() {
-            override fun getFormattedValue(value: Float) = String.format("%.1f dB", value)
-        }
-        chartWelch.marker = MyMarkerView(this)
-
         btnApply.setOnClickListener {
+            // update analyzer parameters
             PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: 6.0
             PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: 3.0
             PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: 0.25
 
-            lastUri?.let { handleZipUri(it) }
+            lastUri?.let { uri -> handleZipUri(uri) } ?: run {
+                resultView.text = "No file selected. Share or view a ZIP containing CSV."
+            }
         }
 
         try {
             when (intent?.action) {
-                Intent.ACTION_VIEW -> intent.data?.also {
-                    lastUri = it
-                    handleZipUri(it)
+                Intent.ACTION_VIEW -> intent.data?.also { uri ->
+                    lastUri = uri
+                    handleZipUri(uri)
                 }
-                Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.also {
-                    lastUri = it
-                    handleZipUri(it)
+                Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.also { uri ->
+                    lastUri = uri
+                    handleZipUri(uri)
                 }
                 Intent.ACTION_SEND_MULTIPLE -> intent
                     .getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
                     ?.firstOrNull()
-                    ?.also {
-                        lastUri = it
-                        handleZipUri(it)
+                    ?.also { uri ->
+                        lastUri = uri
+                        handleZipUri(uri)
                     }
                 else -> resultView.text = "Share or view a ZIP containing CSV."
             }
@@ -95,20 +93,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleZipUri(uri: Uri) {
         progressBar.visibility = View.VISIBLE
+        resultView.text = "Processing..."
 
         Thread {
             try {
                 contentResolver.openInputStream(uri)?.use { stream ->
                     ZipInputStream(BufferedInputStream(stream)).use { zis ->
                         var entry = zis.nextEntry
-                        var csv: InputStream? = null
+                        var csvStream: InputStream? = null
                         while (entry != null) {
-                            if (entry.name.endsWith(".csv")) {
-                                csv = zis; break
+                            if (entry.name.endsWith(".csv", ignoreCase = true)) {
+                                csvStream = zis
+                                break
                             }
                             entry = zis.nextEntry
                         }
-                        if (csv == null) {
+                        if (csvStream == null) {
                             runOnUiThread {
                                 resultView.text = "No CSV found in ZIP."
                                 progressBar.visibility = View.GONE
@@ -116,9 +116,11 @@ class MainActivity : AppCompatActivity() {
                             return@Thread
                         }
 
-                        val rawBytes = zis.readBytes()
+                        // Read CSV bytes from the current ZipInputStream entry
+                        val rawBytes = csvStream.readBytes()
                         val rawText = rawBytes.toString(Charsets.UTF_8)
 
+                        // Basic cleaning: remove blank lines and lines without commas
                         val cleanedText = rawText
                             .lineSequence()
                             .filter { it.isNotBlank() }
@@ -127,20 +129,20 @@ class MainActivity : AppCompatActivity() {
 
                         val cleanedStream = cleanedText.byteInputStream(Charsets.UTF_8)
 
+                        // Run analysis
                         val res = PafAnalyzer.analyze(cleanedStream)
 
                         runOnUiThread {
                             resultView.text = res.format()
-
-noteView.text = buildString {
-    append("IAF (PAF): ${"%.2f".format(res.iafHz)} Hz\n")
-    append("Confidence: ${"%.2f".format(res.confidence)} (0–1)\n")
-    append("Welch parameters: window=${PafAnalyzer.welchWindowSec}s, ")
-    append("sub-window=${PafAnalyzer.welchSubWindowSec}s, ")
-    append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%.\n")
-}
-
-
+                            noteView.text = buildString {
+                                append("Argmax IAF: ${"%.2f".format(res.iafArgmaxHz)} Hz\n")
+                                append("Parabolic refined IAF: ${"%.2f".format(res.iafParabolicHz)} Hz\n")
+                                append("CoG IAF: ${"%.2f".format(res.iafCogHz)} Hz\n")
+                                append("Rapid IAF (median windows): ${"%.2f".format(res.rapidIafHz)} Hz\n")
+                                append("Chosen IAF: ${"%.2f".format(res.chosenIafHz)} Hz (${res.iafMethod})\n")
+                                append("Confidence: ${"%.2f".format(res.confidence)} (0–1)\n")
+                                append("Welch params: window=${PafAnalyzer.welchWindowSec}s, sub=${PafAnalyzer.welchSubWindowSec}s, overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%\n")
+                            }
                             progressBar.visibility = View.GONE
                         }
                     }
