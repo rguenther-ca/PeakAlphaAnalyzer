@@ -19,6 +19,7 @@ import kotlin.concurrent.thread
  * - Extracts the first CSV, cleans it, and passes it to PafAnalyzer.analyze()
  * - Displays argmax, parabolic-refined, CoG, rapid-IAF, chosen IAF, and confidence
  * - Renders spectrogram and receives ridge callback for decision logic
+ * - Uses SpectrogramView.setOverlayFrequencyHz(...) to draw chosen IAF on the spectrogram
  */
 class MainActivity : AppCompatActivity() {
 
@@ -149,6 +150,9 @@ class MainActivity : AppCompatActivity() {
 
                             // Render spectrogram and compute ridge (view will call back)
                             spectrogramView.setFromPafResult(res)
+
+                            // Draw overlay horizontal marker at chosen IAF
+                            spectrogramView.setOverlayFrequencyHz(res.chosenIafHz)
 
                             progressBar.visibility = View.GONE
                         }
