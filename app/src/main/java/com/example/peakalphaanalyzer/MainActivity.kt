@@ -14,12 +14,10 @@ import kotlin.concurrent.thread
 /**
  * MainActivity.kt
  *
- * Minimal UI integration:
- * - Accepts a shared ZIP (or VIEW intent) containing a CSV
- * - Extracts the first CSV, cleans it, and passes it to PafAnalyzer.analyze()
- * - Displays argmax, parabolic-refined, CoG, rapid-IAF, chosen IAF, and confidence
- * - Renders spectrogram and receives ridge callback for decision logic
- * - Uses SpectrogramView.setOverlayFrequencyHz(...) to draw chosen IAF on the spectrogram
+ * - Pre-populates the three UI inputs with the values from PafAnalyzer:
+ *     welchWindowSec, welchSubWindowSec, welchOverlap
+ * - Keeps the fields functional: pressing Apply updates PafAnalyzer and re-runs analysis
+ * - Integrates with SpectrogramView overlay API (setOverlayFrequencyHz)
  */
 class MainActivity : AppCompatActivity() {
 
@@ -51,24 +49,26 @@ class MainActivity : AppCompatActivity() {
 
         resultView.setTextIsSelectable(true)
 
-        etWindow.setText("6.0")
-        etSubWindow.setText("3.0")
-        etOverlap.setText("0.25")
+        // Pre-populate the UI fields with the current PafAnalyzer defaults
+        etWindow.setText(PafAnalyzer.welchWindowSec.toString())
+        etSubWindow.setText(PafAnalyzer.welchSubWindowSec.toString())
+        etOverlap.setText(PafAnalyzer.welchOverlap.toString())
 
         // Receive ridge callback for decision logic or UI updates
         spectrogramView.setRidgeListener(object : SpectrogramView.RidgeListener {
             override fun onRidgeComputed(ridgeFreqs: DoubleArray, continuity: Double) {
                 // runs on UI thread (SpectrogramView posts to UI)
                 noteView.text = "Ridge continuity: ${"%.2f".format(continuity)}"
-                // Optionally: use ridgeFreqs to refine chosen IAF or display timeline
             }
         })
 
         btnApply.setOnClickListener {
-            PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: 6.0
-            PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: 3.0
-            PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: 0.25
+            // Update PafAnalyzer parameters from UI (keep defaults if parsing fails)
+            PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: PafAnalyzer.welchWindowSec
+            PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: PafAnalyzer.welchSubWindowSec
+            PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: PafAnalyzer.welchOverlap
 
+            // If a file was previously loaded, re-run analysis with new parameters
             lastUri?.let { handleZipUri(it) } ?: run {
                 resultView.text = "No file selected. Share or view a ZIP containing CSV."
             }
@@ -101,6 +101,8 @@ class MainActivity : AppCompatActivity() {
     private fun handleZipUri(uri: Uri) {
         progressBar.visibility = View.VISIBLE
         resultView.text = "Processing..."
+        // Clear any previous overlay while processing
+        spectrogramView.setOverlayFrequencyHz(null)
 
         thread {
             try {
