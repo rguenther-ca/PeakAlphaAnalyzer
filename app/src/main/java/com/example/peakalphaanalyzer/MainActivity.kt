@@ -19,13 +19,6 @@ import kotlin.concurrent.thread
  * - Extracts the first CSV, cleans it, and passes it to PafAnalyzer.analyze()
  * - Displays argmax, parabolic-refined, CoG, rapid-IAF, chosen IAF, and confidence
  * - Renders spectrogram and receives ridge callback for decision logic
- *
- * Ensure activity_main.xml contains:
- * - SpectrogramView with id spectrogramView
- * - EditTexts: etWindow, etSubWindow, etOverlap
- * - Button: btnApply
- * - TextViews: resultTextView, noteTextView
- * - ProgressBar: progressBar
  */
 class MainActivity : AppCompatActivity() {
 
@@ -34,7 +27,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etOverlap: EditText
     private lateinit var btnApply: Button
 
-    private lateinit var spectroView: SpectrogramView
+    private lateinit var spectrogramView: SpectrogramView
     private lateinit var resultView: TextView
     private lateinit var noteView: TextView
     private lateinit var progressBar: ProgressBar
@@ -50,7 +43,7 @@ class MainActivity : AppCompatActivity() {
         etOverlap = findViewById(R.id.etOverlap)
         btnApply = findViewById(R.id.btnApply)
 
-        spectroView = findViewById(R.id.spectrogramView)
+        spectrogramView = findViewById(R.id.spectrogramView)
         resultView = findViewById(R.id.resultTextView)
         noteView = findViewById(R.id.noteTextView)
         progressBar = findViewById(R.id.progressBar)
@@ -62,12 +55,11 @@ class MainActivity : AppCompatActivity() {
         etOverlap.setText("0.25")
 
         // Receive ridge callback for decision logic or UI updates
-        spectroView.setRidgeListener(object : SpectrogramView.RidgeListener {
+        spectrogramView.setRidgeListener(object : SpectrogramView.RidgeListener {
             override fun onRidgeComputed(ridgeFreqs: DoubleArray, continuity: Double) {
-                runOnUiThread {
-                    noteView.text = "Ridge continuity: ${"%.2f".format(continuity)}"
-                    // Optionally: use ridgeFreqs to refine chosen IAF or display timeline
-                }
+                // runs on UI thread (SpectrogramView posts to UI)
+                noteView.text = "Ridge continuity: ${"%.2f".format(continuity)}"
+                // Optionally: use ridgeFreqs to refine chosen IAF or display timeline
             }
         })
 
@@ -156,7 +148,7 @@ class MainActivity : AppCompatActivity() {
                             }
 
                             // Render spectrogram and compute ridge (view will call back)
-                            spectroView.setFromPafResult(res)
+                            spectrogramView.setFromPafResult(res)
 
                             progressBar.visibility = View.GONE
                         }
