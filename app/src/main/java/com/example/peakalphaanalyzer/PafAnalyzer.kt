@@ -18,7 +18,7 @@ import kotlin.math.*
  * extracts multiple IAF estimates (argmax, parabolic-refined, CoG, rapid-IAF),
  * computes confidence and returns diagnostics.
  *
- * Dependencies required in build.gradle:
+ * Requires dependencies:
  * implementation 'com.opencsv:opencsv:5.7.1'
  * implementation 'org.apache.commons:commons-math3:3.6.1'
  */
@@ -64,6 +64,10 @@ object PafAnalyzer {
     ) {
         fun format(): String = buildString {
             append("fs=${"%.1f".format(fs)} Hz, dur=${"%.1f".format(duration)} s\n")
+            append("Argmax IAF: ${"%.2f".format(iafArgmaxHz)} Hz\n")
+            append("Parabolic refined IAF: ${"%.2f".format(iafParabolicHz)} Hz\n")
+            append("CoG IAF: ${"%.2f".format(iafCogHz)} Hz\n")
+            append("Rapid IAF (median windows): ${"%.2f".format(rapidIafHz)} Hz\n")
             append("Chosen IAF: ${"%.2f".format(chosenIafHz)} Hz (${iafMethod})\n")
             append("Confidence: ${"%.2f".format(confidence)} (0–1)\n")
             append("Peak power: ${"%.6f".format(peakPower)}, alpha mean: ${"%.6f".format(alphaMeanPower)}\n")
@@ -72,7 +76,7 @@ object PafAnalyzer {
     }
 
     /**
-     * Analyze a Muse CSV InputStream and return IAF result.
+     * Main entry: analyze a Muse CSV InputStream and return IAF result.
      */
     fun analyze(stream: java.io.InputStream): IafResult {
         val reader = CSVReader(InputStreamReader(stream))
