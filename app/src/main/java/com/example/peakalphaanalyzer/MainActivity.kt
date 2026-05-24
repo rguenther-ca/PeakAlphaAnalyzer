@@ -1,145 +1,156 @@
+// MainActivity.kt
 package com.example.peakalphaanalyzer
 
-import android.Manifest
-import android.content.pm.PackageManager
+import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
-import android.provider.OpenableColumns
-import android.util.Log
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
+import android.view.View
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import java.io.File
-import java.io.FileOutputStream
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.*
+import com.github.mikephil.charting.formatter.ValueFormatter
+import java.io.BufferedInputStream
 import java.io.InputStream
-import kotlin.concurrent.thread
-
-/**
- * MainActivity.kt (simplified)
- *
- * - Minimal UI: pick CSV file, run analysis, show textual results.
- * - No spectrogram visual; avoids heavy UI drawing that can break some CI pipelines.
- * - Uses PafAnalyzer (same package) to analyze and export diagnostics CSV.
- *
- * Place this file at:
- * app/src/main/java/com/example/peakalphaanalyzer/MainActivity.kt
- */
+import java.util.zip.ZipInputStream
 
 class MainActivity : AppCompatActivity() {
 
-    private val TAG = "MainActivity"
-    private lateinit var loadButton: Button
-    private lateinit var statusText: TextView
-    private lateinit var resultsText: TextView
-    private val analyzer = PafAnalyzer(256.0)
+    private lateinit var etWindow: EditText
+    private lateinit var etSubWindow: EditText
+    private lateinit var etOverlap: EditText
+    private lateinit var btnApply: Button
 
-    private val pickFileLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) handlePickedFile(uri) else runOnUiThread { statusText.text = "No file selected" }
-    }
+    private lateinit var chartWelch: LineChart
+    private lateinit var resultView: TextView
+    private lateinit var noteView: TextView
+    private lateinit var progressBar: ProgressBar
+
+    private var lastUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        // Simple vertical layout
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(16, 16, 16, 16)
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        etWindow = findViewById(R.id.etWindow)
+        etSubWindow = findViewById(R.id.etSubWindow)
+        etOverlap = findViewById(R.id.etOverlap)
+        btnApply = findViewById(R.id.btnApply)
+
+        chartWelch = findViewById(R.id.lineChartWelch)
+        resultView = findViewById(R.id.resultTextView)
+        noteView = findViewById(R.id.noteTextView)
+        progressBar = findViewById(R.id.progressBar)
+
+        resultView.setTextIsSelectable(true)
+
+        etWindow.setText("6.0")
+        etSubWindow.setText("3.0")
+        etOverlap.setText("0.25")
+
+        chartWelch.description.isEnabled = false
+        chartWelch.axisRight.isEnabled = false
+        chartWelch.xAxis.position = XAxis.XAxisPosition.BOTTOM
+        chartWelch.xAxis.valueFormatter = object : ValueFormatter() {
+            override fun getFormattedValue(value: Float) = String.format("%.2f s", value)
+        }
+        chartWelch.axisLeft.valueFormatter = object : ValueFormatter() {
+            override fun getFormattedValue(value: Float) = String.format("%.1f dB", value)
+        }
+        chartWelch.marker = MyMarkerView(this)
+
+        btnApply.setOnClickListener {
+            PafAnalyzer.welchWindowSec = etWindow.text.toString().toDoubleOrNull() ?: 6.0
+            PafAnalyzer.welchSubWindowSec = etSubWindow.text.toString().toDoubleOrNull() ?: 3.0
+            PafAnalyzer.welchOverlap = etOverlap.text.toString().toDoubleOrNull() ?: 0.25
+
+            lastUri?.let { handleZipUri(it) }
         }
 
-        loadButton = Button(this).apply {
-            text = "Pick EEG CSV file"
-            setOnClickListener { pickFile() }
-        }
-        statusText = TextView(this).apply { text = "No file loaded" }
-        resultsText = TextView(this).apply { text = "" }
-
-        layout.addView(loadButton, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        layout.addView(statusText, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        layout.addView(resultsText, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-
-        setContentView(layout)
-
-        // request storage permission if needed
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 1001)
-        }
-    }
-
-    private fun pickFile() {
-        // Accept text/csv files
-        pickFileLauncher.launch("text/*")
-    }
-
-    private fun handlePickedFile(uri: Uri) {
-        statusText.text = "Loading file..."
-        thread {
-            try {
-                val file = copyUriToFile(uri)
-                runOnUiThread { statusText.text = "Analyzing ${file.name} ..." }
-                val result = analyzer.analyzeFile(file)
-                runOnUiThread { displayResults(result, file) }
-            } catch (ex: Exception) {
-                Log.e(TAG, "Error handling file: ${ex.message}", ex)
-                runOnUiThread { statusText.text = "Error: ${ex.message}" }
-            }
-        }
-    }
-
-    private fun displayResults(result: PafAnalyzer.FullAnalysisResult, file: File) {
-        val c = result.candidates
-        val sb = StringBuilder()
-        sb.append("File: ${file.name}\n")
-        sb.append("Argmax IAF: ${"%.2f".format(c.argmaxHz)} Hz\n")
-        sb.append("Center of Gravity: ${"%.2f".format(c.cogHz)} Hz\n")
-        sb.append("Rapid IAF (median windows): ${"%.2f".format(c.rapidIafHz)} Hz\n")
-        sb.append("SNR: ${"%.2f".format(c.snr)}\n")
-        sb.append("Prominence: ${"%.4f".format(c.peakProminence)}\n")
-        sb.append("Peak width (Hz): ${"%.2f".format(c.peakWidthHz)}\n")
-        sb.append("Percent windows clean: ${"%.1f".format(c.percentWindowsClean * 100)}%\n")
-        sb.append("PAF mean ± SD: ${"%.2f".format(c.pafMean)} ± ${"%.2f".format(c.pafStd)} Hz\n")
-        resultsText.text = sb.toString()
-        statusText.text = "Analysis complete"
-
-        // write diagnostics CSV to external storage (optional)
         try {
-            val outDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            if (outDir != null) {
-                val outFile = File(outDir, file.nameWithoutExtension + "_diagnostics.csv")
-                analyzer.writeDiagnosticsCsv(outFile.absolutePath, result.freqs, result.psd, result.windowDiags)
-                Toast.makeText(this, "Diagnostics written to ${outFile.absolutePath}", Toast.LENGTH_LONG).show()
+            when (intent?.action) {
+                Intent.ACTION_VIEW -> intent.data?.also {
+                    lastUri = it
+                    handleZipUri(it)
+                }
+                Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.also {
+                    lastUri = it
+                    handleZipUri(it)
+                }
+                Intent.ACTION_SEND_MULTIPLE -> intent
+                    .getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                    ?.firstOrNull()
+                    ?.also {
+                        lastUri = it
+                        handleZipUri(it)
+                    }
+                else -> resultView.text = "Share or view a ZIP containing CSV."
             }
-        } catch (ex: Exception) {
-            Log.w(TAG, "Could not write diagnostics: ${ex.message}")
+        } catch (e: Exception) {
+            resultView.text = "Error: ${e.message}"
         }
     }
 
-    private fun copyUriToFile(uri: Uri): File {
-        val cursor = contentResolver.query(uri, null, null, null, null)
-        var name = "eeg.csv"
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0) name = it.getString(idx)
+    private fun handleZipUri(uri: Uri) {
+        progressBar.visibility = View.VISIBLE
+
+        Thread {
+            try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    ZipInputStream(BufferedInputStream(stream)).use { zis ->
+                        var entry = zis.nextEntry
+                        var csv: InputStream? = null
+                        while (entry != null) {
+                            if (entry.name.endsWith(".csv")) {
+                                csv = zis; break
+                            }
+                            entry = zis.nextEntry
+                        }
+                        if (csv == null) {
+                            runOnUiThread {
+                                resultView.text = "No CSV found in ZIP."
+                                progressBar.visibility = View.GONE
+                            }
+                            return@Thread
+                        }
+
+                        val rawBytes = zis.readBytes()
+                        val rawText = rawBytes.toString(Charsets.UTF_8)
+
+                        val cleanedText = rawText
+                            .lineSequence()
+                            .filter { it.isNotBlank() }
+                            .filter { it.contains(",") }
+                            .joinToString("\n")
+
+                        val cleanedStream = cleanedText.byteInputStream(Charsets.UTF_8)
+
+                        val res = PafAnalyzer.analyze(cleanedStream)
+
+                        runOnUiThread {
+                            resultView.text = res.format()
+
+noteView.text = buildString {
+    append("IAF (PAF): ${"%.2f".format(res.iafHz)} Hz\n")
+    append("Confidence: ${"%.2f".format(res.confidence)} (0–1)\n")
+    append("Welch parameters: window=${PafAnalyzer.welchWindowSec}s, ")
+    append("sub-window=${PafAnalyzer.welchSubWindowSec}s, ")
+    append("overlap=${(PafAnalyzer.welchOverlap * 100).toInt()}%.\n")
+}
+
+
+                            progressBar.visibility = View.GONE
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    resultView.text = "Error: ${e.message}"
+                    progressBar.visibility = View.GONE
+                }
             }
-        }
-        val input: InputStream = contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Cannot open file")
-        val outFile = File(cacheDir, name)
-        FileOutputStream(outFile).use { out ->
-            val buf = ByteArray(8192)
-            var len: Int
-            while (input.read(buf).also { len = it } > 0) {
-                out.write(buf, 0, len)
-            }
-        }
-        input.close()
-        return outFile
+        }.start()
     }
 }
