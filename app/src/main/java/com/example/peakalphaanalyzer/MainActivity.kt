@@ -132,6 +132,9 @@ class MainActivity : AppCompatActivity() {
                         // Run analysis
                         val res = PafAnalyzer.analyze(cleanedStream)
 
+                        val spectroView = findViewById<SpectrogramView>(R.id.spectrogramView)
+                        spectroView.setFromPafResult(res)
+
                         runOnUiThread {
                             resultView.text = res.format()
                             noteView.text = buildString {
