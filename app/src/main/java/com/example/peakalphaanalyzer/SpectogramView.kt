@@ -15,10 +15,6 @@ import kotlin.math.*
  * - Detects an alpha ridge (alphaLowHz..alphaHighHz) per time frame and applies parabolic refinement
  * - Computes a ridge continuity metric (0..1)
  * - Optional callback: notifies a listener with the ridge array and continuity when computation completes
- *
- * Usage:
- *  - spectrogramView.setRidgeListener(listener)
- *  - spectrogramView.setFromPafResult(result) or setFromSignal(...)
  */
 class SpectrogramView @JvmOverloads constructor(
     context: Context,
