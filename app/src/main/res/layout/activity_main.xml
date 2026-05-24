@@ -1,149 +1,174 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:chart="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="#FF000000"
     tools:context=".MainActivity">
 
-    <!-- Contenuto scrollabile -->
+    <!-- Top controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Welch window (s)"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/etWindow"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:inputType="numberDecimal"
+                android:background="@android:drawable/edit_text"
+                android:padding="6dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginStart="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sub-window (s)"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/etSubWindow"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:inputType="numberDecimal"
+                android:background="@android:drawable/edit_text"
+                android:padding="6dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginStart="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Overlap (0–1)"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/etOverlap"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:inputType="numberDecimal"
+                android:background="@android:drawable/edit_text"
+                android:padding="6dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnApply"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Apply"
+            android:layout_marginStart="8dp"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp" />
+    </LinearLayout>
+
+    <!-- Spectrogram area -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="260dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="#FF111111">
+
+        <com.example.peakalphaanalyzer.SpectrogramView
+            android:id="@+id/spectrogramView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- continuity badge overlay (optional) -->
+        <TextView
+            android:id="@+id/continuityBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="R: 0.00"
+            android:textColor="#FFFFFFFF"
+            android:background="#66000000"
+            android:padding="6dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="8dp"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <!-- Results and notes -->
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="8dp">
+            android:orientation="vertical">
 
-            <!-- Pannello di controllo parametri -->
-            <LinearLayout
-                android:id="@+id/controls"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <!-- Window length -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Window (s)"
-                        android:textSize="10sp"
-                        android:textColor="#333333"/>
-
-                    <EditText
-                        android:id="@+id/etWindow"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="numberDecimal"
-                        android:hint="4.0"/>
-                </LinearLayout>
-
-                <!-- Sub-window length -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="8dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Sub-window (s)"
-                        android:textSize="10sp"
-                        android:textColor="#333333"/>
-
-                    <EditText
-                        android:id="@+id/etSubWindow"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="numberDecimal"
-                        android:hint="2.0"/>
-                </LinearLayout>
-
-                <!-- Overlap fraction -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="8dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Overlap (0–1)"
-                        android:textSize="10sp"
-                        android:textColor="#333333"/>
-
-                    <EditText
-                        android:id="@+id/etOverlap"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="numberDecimal"
-                        android:hint="0.50"/>
-                </LinearLayout>
-
-                <Button
-                    android:id="@+id/btnApply"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="Apply"/>
-            </LinearLayout>
-
-            <!-- Grafico Welch -->
-            <com.github.mikephil.charting.charts.LineChart
-                android:id="@+id/lineChartWelch"
-                android:layout_width="match_parent"
-                android:layout_height="300dp"
-                android:layout_marginTop="16dp"/>
-
-            <!-- Grafico FFT -->
-            <com.github.mikephil.charting.charts.LineChart
-                android:id="@+id/lineChartFFT"
-                android:layout_width="match_parent"
-                android:layout_height="300dp"
-                android:layout_marginTop="16dp"/>
-
-            <!-- Risultato testuale -->
             <TextView
                 android:id="@+id/resultTextView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp"
                 android:padding="8dp"
-                android:textColor="#000"
-                android:textSize="16sp"/>
+                android:background="#22000000" />
 
-            <!-- Nota parametri -->
             <TextView
                 android:id="@+id/noteTextView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:textColor="#FFDDDDDD"
+                android:textSize="13sp"
                 android:padding="8dp"
-                android:textColor="#555555"
-                android:textSize="10sp"/>
+                android:layout_marginTop="6dp"
+                android:background="#11000000" />
         </LinearLayout>
     </ScrollView>
 
-    <!-- Progress indicator in overlay -->
+    <!-- Progress bar -->
     <ProgressBar
         android:id="@+id/progressBar"
-        style="?android:attr/progressBarStyleLarge"
-        android:layout_width="64dp"
-        android:layout_height="64dp"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
         android:indeterminate="true"
         android:visibility="gone"
-        android:layout_gravity="center"/>
-</FrameLayout>
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>
